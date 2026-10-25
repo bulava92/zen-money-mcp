@@ -1,0 +1,17 @@
+config_version: 1
+control_plane:
+  base_url: https://api.openai.com
+  tunnel_id: REPLACE_WITH_NEW_TUNNEL_ID
+  api_key: file:/home/vscode/.config/zen_money_mcp/openai-runtime-key
+health:
+  listen_addr: 127.0.0.1:37120
+admin_ui:
+  open_browser: false
+log:
+  level: info
+  format: json
+mcp:
+  commands:
+    - channel: main
+      command: node /var/www/zen-money-mcp/src/server.mjs
+

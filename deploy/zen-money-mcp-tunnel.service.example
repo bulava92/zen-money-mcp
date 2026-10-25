@@ -1,0 +1,20 @@
+[Unit]
+Description=ZenMoney MCP Secure Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vscode
+Group=vscode
+WorkingDirectory=/var/www/zen-money-mcp
+Environment=HOME=/home/vscode
+ExecStart=/var/www/zen-money-mcp/bin/tunnel-client run --profile-file /home/vscode/.config/zen_money_mcp/tunnel-profile.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

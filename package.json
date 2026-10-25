@@ -1,0 +1,14 @@
+{
+  "name": "zen-money-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent MCP server for the ZenMoney API",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node src/server.mjs" },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.0.0"
+  }
+}
+
