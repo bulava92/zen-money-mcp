@@ -1,20 +1,131 @@
-ZenMoney MCP
+# Zen Money MCP
 
-Самостоятельный MCP-сервер для API Дзен-мани. Код, зависимости и конфигурация находятся отдельно от других приложений.
+MCP-сервер для личного аккаунта Дзен-мани. Он использует официальный API Дзен-мани для чтения данных, анализа расходов и выполнения финансовых операций. Сервер работает через **stdio** и не открывает публичный HTTP-порт.
 
-Инструменты: синхронизация /v8/diff/; профиль; счета; категории; контрагенты; валюты и банки; операции; напоминания и запланированные операции; сводка доходов и расходов по валютам и категориям; месячные бюджеты; подсказки /v8/suggest/; создание, изменение и удаление операций; создание, изменение, скрытие и удаление неиспользуемых категорий; создание, изменение и архивация счетов; создание и изменение контрагентов.
+Каждому пользователю нужна собственная установка и собственный токен Дзен-мани. Не подключай личный токен к общему серверу для других пользователей: инструменты умеют читать и менять финансовые данные аккаунта.
 
-Токен вводится на сервере скрытым вводом:
-    /var/www/zen-money-mcp/bin/set-token.sh
-Файл сохраняется отдельно от проекта в ~/.config/zen_money_mcp/access-token с правами только владельца. Не передавай токен в сообщения, аргументы команд или журналы.
+## Требования
 
-Для локального запуска:
-    cd /var/www/zen-money-mcp
-    npm start
-Сервер использует stdio. Обычный вывод зарезервирован под MCP-протокол, диагностика идёт в stderr.
+- Node.js 20 или новее и npm.
+- MCP-клиент с поддержкой stdio-серверов.
+- Доступ в интернет к `api.zenmoney.ru`.
+- Для установки Secure MCP Tunnel на Linux x86-64 доступен бинарный `bin/tunnel-client`; другим платформам потребуется совместимая версия.
 
-Данные Дзен-мани остаются в памяти процесса; транзакционная история не записывается в файлы. Для ChatGPT подготовлены отдельные шаблоны профиля и systemd-службы в deploy/. Новый tunnel ID и runtime API key нужно будет внести в профиль; runtime key вводится скрытым вводом через bin/set-openai-key.sh.
+## Установка и запуск
 
-## Full API coverage
+```sh
+git clone https://github.com/bulava92/zen-money-mcp.git
+cd zen-money-mcp
+npm ci --ignore-scripts --no-audit --no-fund
+./bin/set-token.sh
+npm start
+```
 
-The high-level tools cover common finance tasks. For complete access to API fields and batch changes, use get_zenmoney_entities to read full raw records and apply_zenmoney_diff to create or patch records across all writable entities, including reminder markers. apply_zenmoney_diff merges partial updates with the current record, updates the sync timestamp, binds writes to the current profile, and requires confirmDeletes: true for deletions. Budgets are removed by unlocking and setting the relevant amount to zero. sync_zenmoney accepts forceFetch to reload selected entities. user, instrument, and company remain read-only system entities.
+`set-token.sh` запрашивает токен скрытым вводом и хранит его вне репозитория: `${HOME}/.config/zen_money_mcp/access-token`. Каталог создаётся с правами `700`, файл — `600`. Сервер принимает только обычный файл токена без прав на чтение или запись для группы и остальных пользователей; символическая ссылка не допускается.
+
+Путь можно изменить через `ZENMONEY_TOKEN_FILE`. Если задаёшь его для службы или MCP-клиента, обеспечь права `600` и доступ тому же пользователю ОС, который запускает процесс.
+
+Для MCP-клиента, который поддерживает stdio, укажи команду и абсолютный путь к проекту. Например:
+
+```json
+{
+  "mcpServers": {
+    "zen-money": {
+      "command": "node",
+      "args": ["/absolute/path/to/zen-money-mcp/src/server.mjs"]
+    }
+  }
+}
+```
+
+Формат файла конфигурации может различаться в зависимости от MCP-клиента.
+
+## Инструменты
+
+### Синхронизация и общие данные
+
+- `sync_zenmoney` — синхронизирует выбранные сущности с API; поддерживает принудительное обновление.
+- `get_zenmoney_profile` — ID профиля и основная валюта.
+- `get_zenmoney_entities` — читает полные исходные записи сущностей для точного просмотра полей API.
+- `list_instruments`, `list_companies` — справочники валют, банков и организаций.
+
+### Счета, категории и контрагенты
+
+- `list_accounts`, `create_account`, `update_account`, `archive_account`.
+- `list_categories`, `create_category`, `update_category`, `hide_category`, `delete_category`.
+- `list_merchants`, `create_merchant`, `update_merchant`.
+
+Архивация счёта и скрытие категории сохраняют историю. Для удаления категории инструмент требует `confirm: true` и проверяет, что категория не используется в активных операциях. Удаление напоминания также требует `confirm: true`.
+
+### Операции, бюджеты и отчёты
+
+- `list_transactions` — фильтрует операции по датам, счёту и категории; выдаёт результат страницами.
+- `create_transaction`, `update_transaction`, `delete_transaction`. Последний помечает операцию удалённой в Дзен-мани, сохраняя её запись в истории синхронизации.
+- `summarize_spending` — сводит доходы и расходы за период по валютам и категориям. Суммы разных валют не складываются.
+- `list_budgets`, `set_budget`, `delete_budget`.
+
+Для удаления бюджета сервер разблокирует его и устанавливает сумму в ноль, сохраняя связанные данные. Проверяй валюту и период при анализе итогов.
+
+### Напоминания и подсказки
+
+- `list_reminders`, `list_reminder_markers`, `create_reminder`, `update_reminder`, `delete_reminder`.
+- `suggest_transaction`, `suggest_transactions` — запрашивают у Дзен-мани подсказки категории и контрагента для одной или нескольких операций.
+
+### Низкоуровневая работа с API
+
+- `apply_zenmoney_diff` создаёт и изменяет записи пакетами для поддерживаемых сущностей, включая операции, счета, категории, контрагентов, бюджеты и напоминания.
+- Частичное изменение объединяется с текущей записью. Новые записи связываются с текущим профилем.
+- Для удаления через `apply_zenmoney_diff` нужно явно передать `confirmDeletes: true`. Высокоуровневые `delete_category` и `delete_reminder` требуют `confirm: true`. Системные сущности `user`, `instrument` и `company` доступны только для чтения.
+
+Используй `apply_zenmoney_diff` только когда высокоуровневого инструмента недостаточно: этот инструмент позволяет менять больше полей API за один вызов.
+
+## Данные и безопасность
+
+- Токен отправляется как Bearer только на `https://api.zenmoney.ru/v8/diff/` и `https://api.zenmoney.ru/v8/suggest/`.
+- Транзакционная история хранится в памяти процесса и не записывается сервером в локальную базу или файлы.
+- stdout зарезервирован для MCP-протокола; диагностика возвращается через stderr/MCP-ответы.
+- Токен даёт доступ к данным Дзен-мани в соответствии с правами аккаунта. Не передавай его в сообщения, аргументы команд, Git или логи.
+- Скрипт настройки защищает обычный файл токена правами, но `.gitignore` не удалит секрет, если его вручную закоммитили. Перед публикацией проверь историю репозитория.
+- Перед созданием, изменением или удалением финансовой записи проверь сумму, валюту, счёт и категорию.
+
+## Secure MCP Tunnel и systemd
+
+Tunnel — необязательный способ подключить сервер через Secure MCP Tunnel. Локальный stdio-запуск не требует Tunnel ID или runtime API key.
+
+1. Создай Secure MCP Tunnel и получи Tunnel ID и runtime API key.
+2. Сохрани runtime key отдельно от токена Дзен-мани:
+
+   ```sh
+   ./bin/set-openai-key.sh
+   ```
+
+   По умолчанию он записывается в `${HOME}/.config/zen_money_mcp/openai-runtime-key` с правами `600`.
+3. Скопируй профиль и замени `REPLACE_WITH_NEW_TUNNEL_ID` на свой Tunnel ID:
+
+   ```sh
+   install -d -m 700 "$HOME/.config/zen_money_mcp"
+   cp deploy/tunnel-profile.yaml.example "$HOME/.config/zen_money_mcp/tunnel-profile.yaml"
+   chmod 600 "$HOME/.config/zen_money_mcp/tunnel-profile.yaml"
+   ```
+4. В профиле проверь путь в `api_key` и команду `node .../src/server.mjs`; укажи пути и домашний каталог пользователя, который запускает службу.
+5. При настройке systemd сначала отредактируй `deploy/zen-money-mcp-tunnel.service.example`: в шаблоне используются пользователь `vscode`, каталог `/var/www/zen-money-mcp` и профиль `/home/vscode/...`. Затем установи его и запусти службу:
+
+   ```sh
+   sudo install -o root -g root -m 0644 deploy/zen-money-mcp-tunnel.service.example /etc/systemd/system/zen-money-mcp-tunnel.service
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now zen-money-mcp-tunnel.service
+   ```
+
+Шаблон профиля слушает health endpoint только на `127.0.0.1`. Не открывай его наружу и не передавай runtime key другим людям. Бинарный `bin/tunnel-client` в репозитории собран для Linux x86-64; для другой ОС установи совместимую версию отдельно. Перед повторным распространением бинарного файла проверь условия его правообладателя.
+
+## Устранение неполадок
+
+- **«Токен не настроен»:** выполни `./bin/set-token.sh` от имени пользователя, запускающего MCP-сервер.
+- **401 от API:** токен отклонён; проверь его в настройках Дзен-мани и сохрани заново.
+- **403 от API:** у токена нет доступа; создай или обнови токен с нужными разрешениями.
+- **Ошибка прав на файл:** установи режим `600`, проверь владельца и убедись, что путь не является символической ссылкой.
+- **Tunnel не запускается:** проверь Tunnel ID, runtime key, путь к файлу ключа, абсолютный путь проекта и systemd-журнал службы.
+
+## Лицензия
+
+Исходный код проекта распространяется по лицензии MIT; текст находится в [`LICENSE`](LICENSE). Бинарный `bin/tunnel-client` является отдельным компонентом и не получает лицензию MIT автоматически; проверь условия его правообладателя перед распространением.
